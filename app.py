@@ -14,6 +14,9 @@ from deep_translator import GoogleTranslator
 import signal
 from functools import wraps
 from threading import Event
+import tempfile
+import shutil
+import threading
 
 UPLOAD_FOLDER = 'uploads'
 CONVERTED_FOLDER = 'converted'
@@ -37,10 +40,10 @@ app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # Disable caching
 app.config['TEMPLATES_AUTO_RELOAD'] = False  # Disable template auto-reload
 app.config['JSON_AS_ASCII'] = False  # Support non-ASCII characters
 app.config['PERMANENT_SESSION_LIFETIME'] = 1800  # 30 minutes
-app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # Disable caching
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
+app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB max file size
 app.config['UPLOAD_EXTENSIONS'] = ['.pptx']
 app.config['REQUEST_TIMEOUT'] = 300  # 5 minutes timeout
+app.config['THREADED'] = True
 
 # Global abort event
 abort_event = Event()
@@ -334,57 +337,58 @@ def index():
     cleanup_old_files()  # Clean up old files on page load
     return render_template('index.html')
 
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['UPLOAD_EXTENSIONS']
+
 @app.route('/upload-chunk', methods=['POST'])
 def upload_chunk():
     try:
         if 'file' not in request.files:
-            return jsonify({'status': 'error', 'message': 'No file part'}), 400
+            return jsonify({'error': 'No file part'}), 400
         
         file = request.files['file']
-        chunk_number = int(request.form.get('chunk', 0))
-        total_chunks = int(request.form.get('total', 0))
-        filename = request.form.get('filename')
-        
-        if not filename:
-            return jsonify({'status': 'error', 'message': 'No filename provided'}), 400
+        chunk_index = int(request.form.get('chunk', 0))
+        total_chunks = int(request.form.get('total', 1))
+        filename = secure_filename(request.form.get('filename', ''))
 
-        # Force memory cleanup before saving chunk
-        force_memory_cleanup()
+        if not filename:
+            return jsonify({'error': 'No filename provided'}), 400
+
+        if not allowed_file(filename):
+            return jsonify({'error': 'File type not allowed'}), 400
+
+        # Create a temporary directory for chunks if it doesn't exist
+        chunk_dir = os.path.join(app.config['CHUNK_FOLDER'], filename)
+        os.makedirs(chunk_dir, exist_ok=True)
 
         # Save the chunk
-        chunk_name = f"{filename}.part{chunk_number}"
-        chunk_path = os.path.join(app.config['CHUNK_FOLDER'], chunk_name)
+        chunk_path = os.path.join(chunk_dir, f'chunk_{chunk_index}')
         file.save(chunk_path)
 
-        # If this is the last chunk, assemble the file
-        if chunk_number == total_chunks - 1:
-            final_filename = secure_filename(filename)
-            final_path = os.path.join(app.config['UPLOAD_FOLDER'], final_filename)
-            
-            # Get all chunks for this file
-            chunk_files = sorted([
-                os.path.join(app.config['CHUNK_FOLDER'], f)
-                for f in os.listdir(app.config['CHUNK_FOLDER'])
-                if f.startswith(filename + '.part')
-            ])
-            
-            if assemble_chunks(chunk_files, final_path):
-                return jsonify({
-                    'status': 'success',
-                    'message': 'File uploaded successfully',
-                    'filename': final_filename
-                })
-            else:
-                return jsonify({'status': 'error', 'message': 'Error assembling file'}), 500
-        
+        # If this is the last chunk, combine all chunks
+        if chunk_index == total_chunks - 1:
+            final_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            with open(final_path, 'wb') as outfile:
+                for i in range(total_chunks):
+                    chunk_path = os.path.join(chunk_dir, f'chunk_{i}')
+                    with open(chunk_path, 'rb') as infile:
+                        outfile.write(infile.read())
+
+            # Clean up chunks
+            shutil.rmtree(chunk_dir)
+
+            return jsonify({
+                'message': 'File upload complete',
+                'filename': filename
+            }), 200
+
         return jsonify({
-            'status': 'success',
-            'message': f'Chunk {chunk_number + 1}/{total_chunks} uploaded'
-        })
+            'message': f'Chunk {chunk_index + 1}/{total_chunks} uploaded successfully'
+        }), 200
 
     except Exception as e:
-        log_error(e, "Error handling chunk upload")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        print(f'[Error] Chunk upload failed: {str(e)}')
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/abort', methods=['POST'])
 def abort_conversion():

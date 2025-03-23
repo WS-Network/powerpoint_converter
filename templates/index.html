@@ -526,26 +526,60 @@
         return;
       }
 
+      const file = fileInput.files[0];
+      const chunkSize = 1024 * 1024; // 1MB chunks
+      const totalChunks = Math.ceil(file.size / chunkSize);
+      let uploadedChunks = 0;
+
       console.log('[System] Starting conversion with:', {
-        fileName: fileInput.files[0].name,
+        fileName: file.name,
+        fileSize: file.size,
+        totalChunks,
         outputName,
         conversionDirection,
         slideNumbers,
         enableTranslation
       });
 
-      const formData = new FormData();
-      formData.append('file', fileInput.files[0]);
-      formData.append('outputName', outputName);
-      formData.append('conversionDirection', conversionDirection);
-      formData.append('slideNumbers', slideNumbers);
-      formData.append('translationToggle', enableTranslation);
-
       // Start progress indicators
       startProgressIndicators(enableTranslation);
 
       try {
-        console.log('[System] Sending conversion request...');
+        // Upload file in chunks
+        for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+          const start = chunkIndex * chunkSize;
+          const end = Math.min(start + chunkSize, file.size);
+          const chunk = file.slice(start, end);
+
+          const formData = new FormData();
+          formData.append('file', chunk);
+          formData.append('chunk', chunkIndex);
+          formData.append('total', totalChunks);
+          formData.append('filename', file.name);
+
+          const response = await fetch('/upload-chunk', {
+            method: 'POST',
+            body: formData,
+            signal: abortController.signal
+          });
+
+          if (!response.ok) {
+            throw new Error(`Failed to upload chunk ${chunkIndex + 1}/${totalChunks}`);
+          }
+
+          uploadedChunks++;
+          const uploadProgress = (uploadedChunks / totalChunks) * 100;
+          updateProgress(`Uploading file: ${Math.round(uploadProgress)}%`, uploadProgress, 'conversion');
+        }
+
+        // Start conversion process
+        console.log('[System] File upload complete, starting conversion...');
+        const formData = new FormData();
+        formData.append('outputName', outputName);
+        formData.append('conversionDirection', conversionDirection);
+        formData.append('slideNumbers', slideNumbers);
+        formData.append('translationToggle', enableTranslation);
+
         const response = await fetch('/convert', {
           method: 'POST',
           body: formData,
