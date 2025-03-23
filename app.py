@@ -238,8 +238,16 @@ def convert_pptx(input_path, output_path, slide_indices=None, direction='en_to_a
         # Reset abort flag at start of conversion
         reset_abort()
         
-        # Initialize translator
-        translator = GoogleTranslator(source='en', target='ar') if direction == 'en_to_ar' else GoogleTranslator(source='ar', target='en')
+        # Initialize translator with timeout
+        translator = GoogleTranslator(
+            source='en', 
+            target='ar',
+            timeout=30  # 30 second timeout for each translation
+        ) if direction == 'en_to_ar' else GoogleTranslator(
+            source='ar', 
+            target='en',
+            timeout=30
+        )
         
         # Load presentation with minimal memory usage
         prs = Presentation(input_path)
@@ -276,10 +284,14 @@ def convert_pptx(input_path, output_path, slide_indices=None, direction='en_to_a
                         for run in paragraph.runs:
                             if run.text.strip():  # Only translate non-empty text
                                 try:
+                                    # Add delay between translations to avoid rate limiting
+                                    time.sleep(1)
                                     translated_text = translator.translate(run.text)
                                     run.text = translated_text
+                                    print(f"[Translation] Successfully translated text in slide {slide_index}")
                                 except Exception as e:
-                                    print(f"[Translation Error] Failed to translate text: {e}")
+                                    print(f"[Translation Error] Failed to translate text in slide {slide_index}: {e}")
+                                    # Continue with original text if translation fails
                                     continue
             
             # Force memory cleanup after each slide
