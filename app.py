@@ -238,6 +238,9 @@ def convert_pptx(input_path, output_path, slide_indices=None, direction='en_to_a
         # Reset abort flag at start of conversion
         reset_abort()
         
+        # Initialize translator
+        translator = GoogleTranslator(source='en', target='ar') if direction == 'en_to_ar' else GoogleTranslator(source='ar', target='en')
+        
         # Load presentation with minimal memory usage
         prs = Presentation(input_path)
         slide_width = prs.slide_width
@@ -246,7 +249,7 @@ def convert_pptx(input_path, output_path, slide_indices=None, direction='en_to_a
         if slide_indices:
             slide_indices = [i for i in slide_indices if 1 <= i <= total_slides]
         
-        # Process all slides for formatting
+        # Process all slides for formatting and translation
         for slide_index, slide in enumerate(prs.slides, start=1):
             # Check for abort signal
             if check_abort():
@@ -263,7 +266,21 @@ def convert_pptx(input_path, output_path, slide_indices=None, direction='en_to_a
                 if check_abort():
                     print("[Conversion] Process aborted by user")
                     raise Exception("Process aborted by user")
+                
+                # Process formatting
                 process_shape_format(shape, slide_width, direction)
+                
+                # Process translation if shape has text
+                if shape.has_text_frame:
+                    for paragraph in shape.text_frame.paragraphs:
+                        for run in paragraph.runs:
+                            if run.text.strip():  # Only translate non-empty text
+                                try:
+                                    translated_text = translator.translate(run.text)
+                                    run.text = translated_text
+                                except Exception as e:
+                                    print(f"[Translation Error] Failed to translate text: {e}")
+                                    continue
             
             # Force memory cleanup after each slide
             force_memory_cleanup()
