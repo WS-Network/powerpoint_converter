@@ -33,11 +33,14 @@ app.config['CONVERTED_FOLDER'] = CONVERTED_FOLDER
 app.config['CHUNK_FOLDER'] = CHUNK_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = None  # Remove global limit
 app.config['MAX_CHUNK_SIZE'] = CHUNK_SIZE
-
-# Configure Flask to handle large files
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # Disable caching
 app.config['TEMPLATES_AUTO_RELOAD'] = False  # Disable template auto-reload
 app.config['JSON_AS_ASCII'] = False  # Support non-ASCII characters
+app.config['PERMANENT_SESSION_LIFETIME'] = 1800  # 30 minutes
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # Disable caching
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
+app.config['UPLOAD_EXTENSIONS'] = ['.pptx']
+app.config['REQUEST_TIMEOUT'] = 300  # 5 minutes timeout
 
 # Global abort event
 abort_event = Event()
@@ -238,16 +241,8 @@ def convert_pptx(input_path, output_path, slide_indices=None, direction='en_to_a
         # Reset abort flag at start of conversion
         reset_abort()
         
-        # Initialize translator with timeout
-        translator = GoogleTranslator(
-            source='en', 
-            target='ar',
-            timeout=30  # 30 second timeout for each translation
-        ) if direction == 'en_to_ar' else GoogleTranslator(
-            source='ar', 
-            target='en',
-            timeout=30
-        )
+        # Initialize translator
+        translator = GoogleTranslator(source='en', target='ar') if direction == 'en_to_ar' else GoogleTranslator(source='ar', target='en')
         
         # Load presentation with minimal memory usage
         prs = Presentation(input_path)
@@ -284,14 +279,10 @@ def convert_pptx(input_path, output_path, slide_indices=None, direction='en_to_a
                         for run in paragraph.runs:
                             if run.text.strip():  # Only translate non-empty text
                                 try:
-                                    # Add delay between translations to avoid rate limiting
-                                    time.sleep(1)
                                     translated_text = translator.translate(run.text)
                                     run.text = translated_text
-                                    print(f"[Translation] Successfully translated text in slide {slide_index}")
                                 except Exception as e:
-                                    print(f"[Translation Error] Failed to translate text in slide {slide_index}: {e}")
-                                    # Continue with original text if translation fails
+                                    print(f"[Translation Error] Failed to translate text: {e}")
                                     continue
             
             # Force memory cleanup after each slide
@@ -410,53 +401,67 @@ def convert():
     output_path = None
     
     try:
+        print("[Convert] Starting conversion process")
         # Reset abort flag at start of conversion
         reset_abort()
         
         # Check if file was uploaded
         if 'file' not in request.files:
+            print("[Convert] No file in request")
             return jsonify({'status': 'error', 'message': 'No file uploaded'}), 400
             
         file = request.files['file']
         if file.filename == '':
+            print("[Convert] Empty filename")
             return jsonify({'status': 'error', 'message': 'No file selected'}), 400
 
         filename = secure_filename(file.filename)
         if not filename.endswith('.pptx'):
+            print("[Convert] Invalid file type:", filename)
             return jsonify({'status': 'error', 'message': 'Invalid file type. Please upload a .pptx file'}), 400
 
         output_name = request.form.get('outputName')
         if not output_name:
+            print("[Convert] No output name provided")
             return jsonify({'status': 'error', 'message': 'No output name provided'}), 400
 
+        print("[Convert] Processing file:", filename)
         # Save the uploaded file
         input_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(input_path)
+        print("[Convert] File saved to:", input_path)
 
         slide_nums_raw = request.form.get('slideNumbers', '')
         conversion_direction = request.form.get('conversionDirection', 'en_to_ar')
+        print("[Convert] Conversion direction:", conversion_direction)
 
         # Process slide numbers
         slide_indices = None
         if slide_nums_raw.strip():
             try:
                 slide_indices = [int(num.strip()) for num in slide_nums_raw.split(',') if num.strip().isdigit()]
+                print("[Convert] Processing slides:", slide_indices)
             except ValueError:
+                print("[Convert] Invalid slide numbers format")
                 slide_indices = None
 
         output_filename = secure_filename(output_name) + '.pptx'
         output_path = os.path.join(app.config['CONVERTED_FOLDER'], output_filename)
-        
+        print("[Convert] Output path:", output_path)
+
         # Convert with memory optimization
         gc.collect()  # Force garbage collection before processing
+        print("[Convert] Starting conversion process")
         status = convert_pptx(
             input_path=input_path,
             output_path=output_path,
             slide_indices=slide_indices,
             direction=conversion_direction
         )
+        print("[Convert] Conversion status:", status)
 
         if status == 'aborted':
+            print("[Convert] Process was aborted")
             return jsonify({
                 'status': 'aborted',
                 'message': 'Process was aborted by user'
@@ -466,16 +471,20 @@ def convert():
         try:
             if os.path.exists(input_path):
                 os.remove(input_path)
+                print("[Convert] Input file cleaned up")
             gc.collect()
         except Exception as e:
+            print("[Convert] Error cleaning up input file:", str(e))
             log_error(e, "Error cleaning up input file")
 
+        print("[Convert] Conversion completed successfully")
         return jsonify({
             'status': status,
             'download_url': f'/download/{output_filename}'
         })
 
     except Exception as e:
+        print("[Convert] Error during conversion:", str(e))
         # Clean up files in case of error
         try:
             if input_path and os.path.exists(input_path):
@@ -484,6 +493,7 @@ def convert():
                 os.remove(output_path)
             gc.collect()  # Force garbage collection after error
         except Exception as cleanup_error:
+            print("[Convert] Error during cleanup:", str(cleanup_error))
             log_error(cleanup_error, "Error cleaning up files after error")
             
         log_error(e, "Error during request processing")
@@ -524,4 +534,4 @@ def download_file(filename):
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5005))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(host='0.0.0.0', port=port, debug=False, threaded=True)

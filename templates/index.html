@@ -341,7 +341,7 @@
         <div class="input-group">
           <label for="slideNumbers">Slide Numbers to Modify</label>
           <input type="text" id="slideNumbers" name="slideNumbers" placeholder="e.g. 2,4,6">
-          <div class="note">Leave blank to modify all slides</div>
+      <div class="note">Leave blank to modify all slides</div>
         </div>
         <div class="input-group">
           <div class="toggle-container">
@@ -353,9 +353,9 @@
           </div>
           <label for="conversionDirection">Conversion Direction</label>
           <select id="conversionDirection" name="conversionDirection" required>
-            <option value="en_to_ar">English to Arabic</option>
-            <option value="ar_to_en">Arabic to English</option>
-          </select>
+        <option value="en_to_ar">English to Arabic</option>
+        <option value="ar_to_en">Arabic to English</option>
+      </select>
         </div>
       </div>
       <button type="submit">Convert & Download</button>
@@ -377,7 +377,7 @@
 
     function updateProgress(message, percentage, type) {
       if (type === 'conversion') {
-        const box = document.getElementById('progressBox');
+      const box = document.getElementById('progressBox');
         box.innerText = `${message} ${Math.round(percentage)}%`;
         console.log(`[Progress] Conversion: ${message} ${Math.round(percentage)}%`);
       } else if (type === 'translation') {
