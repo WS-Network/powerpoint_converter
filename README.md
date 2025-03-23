@@ -4,17 +4,17 @@
 [![Flask](https://img.shields.io/badge/Flask-3.0.2-green.svg)](https://flask.palletsprojects.com/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A powerful web application that converts PowerPoint presentations between English and Arabic, handling text translation, RTL formatting, and Arabic numerals conversion.
+A powerful web application that converts PowerPoint presentations between English and Arabic, handling RTL formatting and Arabic numerals conversion. Translation is performed client-side for better performance and reliability.
 
 ## ✨ Features
 
-- 🔄 Bidirectional translation between English and Arabic
+- 🔄 Client-side translation between English and Arabic
 - 📝 RTL/LTR text formatting
 - 🔢 Arabic numerals conversion
 - 📊 Maintains presentation layout and formatting
 - 🎯 Selective slide processing
 - 📱 Modern, responsive UI
-- ⚡ Batch processing capability
+- ⚡ Fast processing with client-side translation
 
 ## 🚀 Quick Start
 
@@ -59,9 +59,8 @@ http://localhost:5005
 1. Upload your PowerPoint presentation (.pptx format)
 2. Select conversion direction (English to Arabic or Arabic to English)
 3. Choose specific slides to convert (optional)
-4. Enable/disable translation
-5. Click "Convert" and wait for processing
-6. Download the converted presentation
+4. Click "Convert" and wait for processing
+5. Download the converted presentation
 
 ## 🛠️ Technical Details
 
@@ -69,7 +68,7 @@ http://localhost:5005
 
 - **Flask Backend**: Handles file uploads, processing, and downloads
 - **python-pptx**: PowerPoint file manipulation
-- **deep-translator**: Text translation services
+- **Client-side Translation**: Browser-based translation for better performance
 - **Modern UI**: Responsive design with progress indicators
 
 ### Directory Structure
@@ -97,9 +96,9 @@ powerpoint-arabic-converter/
   - Maintains slide master elements
 
 - **Translation**:
-  - Batch processing for efficiency
-  - Error handling and fallback options
-  - Progress tracking and logging
+  - Client-side processing for better performance
+  - Uses browser's translation capabilities
+  - No API dependencies or rate limits
 
 ## 🔧 Configuration
 
@@ -129,7 +128,6 @@ For support, please open an issue in the GitHub repository or contact the mainta
 ## 🙏 Acknowledgments
 
 - [python-pptx](https://python-pptx.readthedocs.io/) for PowerPoint manipulation
-- [deep-translator](https://deep-translator.readthedocs.io/) for translation services
 - [Flask](https://flask.palletsprojects.com/) for the web framework
 
 ---
