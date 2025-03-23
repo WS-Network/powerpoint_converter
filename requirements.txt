@@ -1,4 +1,6 @@
-Flask==3.0.2
-python-pptx==0.6.23
-Werkzeug==3.0.1
-gunicorn==21.2.0
+Flask==2.3.3
+python-pptx==0.6.21
+Werkzeug==2.3.7
+gunicorn==20.1.0
+requests==2.31.0
+deep-translator==1.11.4

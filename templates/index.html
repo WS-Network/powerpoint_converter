@@ -3,67 +3,361 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PowerPoint Converter</title>
+  <title>Slide Harmony | PowerPoint Converter</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500&display=swap" rel="stylesheet">
   <style>
-    * { box-sizing: border-box; }
-    html, body { height: 100%; margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f4f4f4; }
-    body { display: flex; justify-content: center; align-items: center; }
-    .container { background-color: white; padding: 40px; border-radius: 10px; box-shadow: 0 0 15px rgba(0,0,0,0.1); max-width: 500px; width: 100%; display: flex; flex-direction: column; align-items: center; }
-    h2 { color: #333; margin-bottom: 20px; }
-    form { width: 100%; position: relative; }
-    label { display: block; margin: 15px 0 5px; font-weight: bold; }
-    input[type="file"], input[type="text"], select, button { width: 100%; padding: 10px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 5px; }
-    button { background-color: #28a745; color: white; border: none; cursor: pointer; }
-    button:hover { background-color: #218838; }
-    .note { font-size: 0.9em; color: #666; margin-bottom: 15px; }
-    .progress-container { position: fixed; top: 20px; right: 20px; display: flex; flex-direction: column; gap: 10px; }
-    .progress-popup { display: none; background: #333; color: #fff; padding: 15px 20px; border-radius: 5px; font-size: 14px; z-index: 1000; }
-    .toggle-container { display: flex; align-items: center; margin-bottom: 15px; }
-    .toggle-switch { position: relative; display: inline-block; width: 60px; height: 34px; }
-    .toggle-switch input { opacity: 0; width: 0; height: 0; }
-    .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 34px; }
-    .slider:before { position: absolute; content: ""; height: 26px; width: 26px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
-    input:checked + .slider { background-color: #28a745; }
-    input:checked + .slider:before { transform: translateX(26px); }
-    .toggle-label { margin-left: 10px; }
+    :root {
+      --primary-color: #ffd194;
+      --primary-hover: #E8B98D;
+      --background: linear-gradient(135deg, #F6F4F0 0%, #ffd194 100%);
+      --surface: rgba(255, 255, 255, 0.97);
+      --text-primary: #4A4036;
+      --text-secondary: #8C7B6D;
+      --border-color: #FFE4C4;
+      --shadow: 0 8px 24px rgba(255, 209, 148, 0.12);
+      --shadow-hover: 0 12px 32px rgba(255, 209, 148, 0.2);
+      --accent-1: #FFF9F2;
+      --accent-2: #FFE4C4;
+      --gradient-1: linear-gradient(135deg, #ffd194 0%, #F6E6D8 100%);
+      --gradient-2: linear-gradient(135deg, #F6E6D8 0%, #E8B98D 100%);
+    }
+
+    * { 
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body { 
+      height: 100%;
+      font-family: 'Noto Sans KR', sans-serif;
+      color: var(--text-primary);
+      line-height: 1.6;
+    }
+
+    body { 
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 2rem;
+      min-height: 100vh;
+      background: var(--background);
+    }
+
+    .container {
+      background-color: var(--surface);
+      padding: 3rem;
+      border-radius: 2rem;
+      box-shadow: var(--shadow);
+      width: 90%;
+      max-width: 1200px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2.5rem;
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 209, 148, 0.2);
+    }
+
+    .container::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 8px;
+      background: var(--gradient-1);
+      opacity: 0.9;
+    }
+
+    .logo-section {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    .logo-placeholder {
+      width: 48px;
+      height: 48px;
+      background: var(--gradient-2);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-primary);
+      font-size: 1.5rem;
+      font-weight: 500;
+      box-shadow: var(--shadow);
+      transition: all 0.3s ease;
+    }
+
+    .logo-placeholder:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-hover);
+    }
+
+    .title-section {
+      display: flex;
+      flex-direction: column;
+    }
+
+    h2 {
+      color: var(--text-primary);
+      font-size: 2.2rem;
+      font-weight: 500;
+      letter-spacing: -0.025em;
+      margin: 0;
+      line-height: 1.2;
+    }
+
+    .subtitle {
+      color: var(--text-secondary);
+      font-size: 1rem;
+      font-weight: 400;
+      margin-top: 0.5rem;
+    }
+
+    form {
+      display: contents;
+    }
+
+    .form-left, .form-right {
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+
+    .input-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    label {
+      font-weight: 400;
+      color: var(--text-primary);
+      font-size: 0.9rem;
+    }
+
+    input[type="file"],
+    input[type="text"],
+    select {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      border: 1px solid var(--border-color);
+      border-radius: 0.75rem;
+      background-color: var(--accent-1);
+      color: var(--text-primary);
+      font-size: 0.9rem;
+      transition: all 0.2s ease;
+    }
+
+    input[type="file"] {
+      padding: 0.5rem;
+      background-color: var(--accent-1);
+      border: 1px dashed var(--accent-2);
+    }
+
+    input[type="text"]:focus,
+    select:focus {
+      outline: none;
+      border-color: var(--primary-color);
+      box-shadow: 0 0 0 3px rgba(255, 209, 148, 0.15);
+    }
+
+    .note {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+    }
+
+    .toggle-container {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .toggle-switch {
+      position: relative;
+      display: inline-block;
+      width: 44px;
+      height: 22px;
+    }
+
+    .toggle-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: var(--accent-2);
+      transition: .3s;
+      border-radius: 22px;
+    }
+
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 16px;
+      width: 16px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: .3s;
+      border-radius: 50%;
+    }
+
+    input:checked + .slider {
+      background: var(--gradient-1);
+    }
+
+    input:checked + .slider:before {
+      transform: translateX(22px);
+    }
+
+    .toggle-label {
+      font-size: 0.9rem;
+      color: var(--text-primary);
+    }
+
+    button {
+      grid-column: 1 / -1;
+      width: 100%;
+      padding: 1rem;
+      background: var(--gradient-1);
+      color: var(--text-primary);
+      border: none;
+      border-radius: 0.75rem;
+      font-weight: 500;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      box-shadow: var(--shadow);
+    }
+
+    button:hover {
+      background: var(--gradient-2);
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-hover);
+    }
+
+    .progress-container {
+      position: fixed;
+      top: 1.5rem;
+      right: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .progress-popup {
+      display: none;
+      background: var(--gradient-2);
+      color: var(--text-primary);
+      padding: 0.75rem 1rem;
+      border-radius: 0.75rem;
+      font-size: 0.875rem;
+      backdrop-filter: blur(8px);
+      box-shadow: var(--shadow);
+      border: 1px solid rgba(255, 209, 148, 0.2);
+    }
+
+    .stop-button {
+      display: none;
+      background: linear-gradient(135deg, #ff6b6b 0%, #ff4757 100%);
+      color: white;
+      padding: 0.75rem 1rem;
+      border-radius: 0.75rem;
+      font-size: 0.875rem;
+      border: none;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      box-shadow: 0 4px 12px rgba(255, 71, 87, 0.2);
+    }
+
+    .stop-button:hover {
+      background: linear-gradient(135deg, #ff4757 0%, #ff3b47 100%);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(255, 71, 87, 0.3);
+    }
+
+    .stop-button:active {
+      transform: translateY(0);
+    }
+
+    @media (max-width: 768px) {
+      .container {
+        grid-template-columns: 1fr;
+        gap: 1.5rem;
+        padding: 1.5rem;
+        width: 95%;
+      }
+
+      body {
+        padding: 1rem;
+      }
+
+      h2 {
+        font-size: 1.5rem;
+      }
+
+      .form-left, .form-right {
+        gap: 1rem;
+      }
+    }
   </style>
 </head>
 <body>
   <div class="container">
-    <h2>PowerPoint Converter</h2>
+    <div class="logo-section">
+      <div class="logo-placeholder">SH</div>
+      <div class="title-section">
+        <h2>Slide Harmony</h2>
+        <div class="subtitle">Seamless PowerPoint Translation & Formatting</div>
+      </div>
+    </div>
     <form id="convertForm" method="POST" enctype="multipart/form-data">
-      <label for="file">Select PowerPoint (.pptx)</label>
-      <input type="file" id="file" name="file" accept=".pptx" required>
-
-      <label for="outputName">Output File Name</label>
-      <input type="text" id="outputName" name="outputName" placeholder="converted_version" required>
-
-      <label for="slideNumbers">Slide Numbers to Modify</label>
-      <input type="text" id="slideNumbers" name="slideNumbers" placeholder="e.g. 2,4,6">
-      <div class="note">Leave blank to modify all slides</div>
-
-      <div class="toggle-container">
-        <label class="toggle-switch">
-          <input type="checkbox" id="translationToggle" name="translationToggle" checked>
-          <span class="slider"></span>
-        </label>
-        <span class="toggle-label">Enable Translation</span>
+      <div class="form-left">
+        <div class="input-group">
+          <label for="file">Select PowerPoint (.pptx)</label>
+          <input type="file" id="file" name="file" accept=".pptx" required>
+        </div>
+        <div class="input-group">
+          <label for="outputName">Output File Name</label>
+          <input type="text" id="outputName" name="outputName" placeholder="converted_version" required>
+        </div>
       </div>
-
-      <label for="conversionDirection">Conversion Direction</label>
-      <select id="conversionDirection" name="conversionDirection" required>
-        <option value="en_to_ar">English to Arabic</option>
-        <option value="ar_to_en">Arabic to English</option>
-      </select>
-
-      <div class="toggle-container">
-        <label class="toggle-switch">
-          <input type="checkbox" id="clientTranslation" checked>
-          <span class="slider"></span>
-        </label>
-        <span class="toggle-label">Use client-side translation (reduces server load)</span>
+      <div class="form-right">
+        <div class="input-group">
+          <label for="slideNumbers">Slide Numbers to Modify</label>
+          <input type="text" id="slideNumbers" name="slideNumbers" placeholder="e.g. 2,4,6">
+          <div class="note">Leave blank to modify all slides</div>
+        </div>
+        <div class="input-group">
+          <div class="toggle-container">
+            <label class="toggle-switch">
+              <input type="checkbox" id="translationToggle" name="translationToggle" checked>
+              <span class="slider"></span>
+            </label>
+            <span class="toggle-label">Enable Translation</span>
+          </div>
+          <label for="conversionDirection">Conversion Direction</label>
+          <select id="conversionDirection" name="conversionDirection" required>
+            <option value="en_to_ar">English to Arabic</option>
+            <option value="ar_to_en">Arabic to English</option>
+          </select>
+        </div>
       </div>
-
       <button type="submit">Convert & Download</button>
     </form>
   </div>
@@ -71,6 +365,7 @@
   <div class="progress-container">
     <div class="progress-popup" id="progressBox">Format Conversion: 0%</div>
     <div class="progress-popup" id="translationProgressBox">Translation: 0%</div>
+    <button class="stop-button" id="stopButton">Stop Process</button>
   </div>
 
   <script>
@@ -78,6 +373,7 @@
     let translationPercent = 0;
     let conversionInterval = null;
     let translationInterval = null;
+    let abortController = null;
 
     function updateProgress(message, percentage, type) {
       if (type === 'conversion') {
@@ -94,8 +390,10 @@
     function showError(message) {
       const conversionBox = document.getElementById('progressBox');
       const translationBox = document.getElementById('translationProgressBox');
+      const stopButton = document.getElementById('stopButton');
       conversionBox.innerText = `Error: ${message}`;
       translationBox.innerText = `Error: ${message}`;
+      stopButton.style.display = 'none';
       console.error(`[Error] ${message}`);
       clearInterval(conversionInterval);
       clearInterval(translationInterval);
@@ -107,8 +405,9 @@
 
     function startProgressIndicators(enableTranslation) {
       console.log('[System] Starting progress indicators, translation enabled:', enableTranslation);
-      // Show conversion progress box
+      // Show conversion progress box and stop button
       document.getElementById('progressBox').style.display = 'block';
+      document.getElementById('stopButton').style.display = 'block';
       if (enableTranslation) {
         document.getElementById('translationProgressBox').style.display = 'block';
         document.getElementById('translationProgressBox').innerText = 'Translation: Waiting for conversion to complete...';
@@ -142,29 +441,39 @@
       }, 100);
     }
 
-    function stopLoading() {
-      console.log('[System] Stopping progress indicators');
+    function stopProcess() {
+      console.log('[System] Stopping process...');
+      if (abortController) {
+        abortController.abort();
+      }
       clearInterval(conversionInterval);
       clearInterval(translationInterval);
       
-      // Set both progress bars to 100% when complete
-      updateProgress('Format conversion complete!', 100, 'conversion');
-      if (document.getElementById('translationProgressBox').style.display === 'block') {
-        updateProgress('Translation complete!', 100, 'translation');
-      }
-
-      // Hide progress boxes after a short delay
-      setTimeout(() => {
-        document.getElementById('progressBox').style.display = 'none';
-        document.getElementById('translationProgressBox').style.display = 'none';
-        console.log('[System] Progress indicators hidden');
-      }, 2000);
+      // Hide progress boxes and stop button
+      document.getElementById('progressBox').style.display = 'none';
+      document.getElementById('translationProgressBox').style.display = 'none';
+      document.getElementById('stopButton').style.display = 'none';
+      
+      // Enable form elements
+      document.getElementById('convertForm').querySelectorAll('input, select, button').forEach(element => {
+        element.disabled = false;
+      });
     }
+
+    document.getElementById('stopButton').addEventListener('click', stopProcess);
 
     document.getElementById('convertForm').addEventListener('submit', async function(e) {
       e.preventDefault(); // Prevent default form submission
       
       try {
+        // Disable form elements during conversion
+        this.querySelectorAll('input, select, button').forEach(element => {
+          element.disabled = true;
+        });
+
+        // Create new AbortController for this request
+        abortController = new AbortController();
+        
         await startLoading();
       } catch (error) {
         console.error('[Error]', error);
@@ -200,14 +509,12 @@
         }
     }
 
-    // Modify the startLoading function to handle client-side translation
     async function startLoading() {
       const fileInput = document.getElementById('file');
       const outputName = document.getElementById('outputName').value;
       const conversionDirection = document.getElementById('conversionDirection').value;
       const slideNumbers = document.getElementById('slideNumbers').value;
       const enableTranslation = document.getElementById('translationToggle').checked;
-      const useClientTranslation = document.getElementById('clientTranslation').checked;
 
       if (!fileInput.files.length) {
         showError('Please select a file');
@@ -224,8 +531,7 @@
         outputName,
         conversionDirection,
         slideNumbers,
-        enableTranslation,
-        useClientTranslation
+        enableTranslation
       });
 
       const formData = new FormData();
@@ -234,11 +540,6 @@
       formData.append('conversionDirection', conversionDirection);
       formData.append('slideNumbers', slideNumbers);
       formData.append('translationToggle', enableTranslation);
-      
-      if (useClientTranslation) {
-        // Don't send translation request to server
-        formData.append('translationToggle', 'false');
-      }
 
       // Start progress indicators
       startProgressIndicators(enableTranslation);
@@ -247,7 +548,8 @@
         console.log('[System] Sending conversion request...');
         const response = await fetch('/convert', {
           method: 'POST',
-          body: formData
+          body: formData,
+          signal: abortController.signal
         });
 
         console.log('[System] Received response:', response.status);
@@ -260,6 +562,11 @@
         
         if (data.error) {
           throw new Error(data.error);
+        }
+
+        if (data.status === 'aborted') {
+          console.log('[System] Process was aborted');
+          return;
         }
 
         // Start translation progress if enabled
@@ -283,13 +590,34 @@
         console.log('[System] Download triggered');
 
       } catch (error) {
-        console.error('[Error] Conversion failed:', error);
-        showError(error.message || 'Conversion failed. Please try again.');
+        if (error.name === 'AbortError') {
+          console.log('[System] Request was aborted');
+          showError('Process was stopped by user');
+        } else {
+          console.error('[Error] Conversion failed:', error);
+          showError(error.message || 'Conversion failed. Please try again.');
+        }
         throw error;
       } finally {
         console.log('[System] Cleaning up...');
         stopLoading();
       }
+    }
+
+    function stopLoading() {
+      console.log('[System] Stopping progress indicators');
+      clearInterval(conversionInterval);
+      clearInterval(translationInterval);
+      
+      // Hide progress boxes and stop button
+      document.getElementById('progressBox').style.display = 'none';
+      document.getElementById('translationProgressBox').style.display = 'none';
+      document.getElementById('stopButton').style.display = 'none';
+      
+      // Enable form elements
+      document.getElementById('convertForm').querySelectorAll('input, select, button').forEach(element => {
+        element.disabled = false;
+      });
     }
   </script>
 </body>

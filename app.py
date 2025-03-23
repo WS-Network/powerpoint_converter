@@ -10,24 +10,65 @@ from pptx.util import Pt
 from werkzeug.utils import secure_filename
 import gc
 import time
+from deep_translator import GoogleTranslator
+import signal
+from functools import wraps
+from threading import Event
 
 UPLOAD_FOLDER = 'uploads'
 CONVERTED_FOLDER = 'converted'
+CHUNK_FOLDER = 'chunks'
 MAX_FILE_AGE = 300  # 5 minutes in seconds
+CHUNK_SIZE = 250 * 1024  # 250KB chunk size for uploads
+MAX_SLIDES_PER_BATCH = 2  # Process 2 slides at a time
+MEMORY_CLEANUP_DELAY = 1  # 1 second delay between memory cleanups
 
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(CONVERTED_FOLDER, exist_ok=True)
+# Create necessary directories
+for folder in [UPLOAD_FOLDER, CONVERTED_FOLDER, CHUNK_FOLDER]:
+    os.makedirs(folder, exist_ok=True)
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['CONVERTED_FOLDER'] = CONVERTED_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
+app.config['CHUNK_FOLDER'] = CHUNK_FOLDER
+app.config['MAX_CONTENT_LENGTH'] = None  # Remove global limit
+app.config['MAX_CHUNK_SIZE'] = CHUNK_SIZE
+
+# Configure Flask to handle large files
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # Disable caching
+app.config['TEMPLATES_AUTO_RELOAD'] = False  # Disable template auto-reload
+app.config['JSON_AS_ASCII'] = False  # Support non-ASCII characters
+
+# Global abort event
+abort_event = Event()
+
+def check_abort():
+    """Check if the process should be aborted"""
+    return abort_event.is_set()
+
+def reset_abort():
+    """Reset the abort event"""
+    abort_event.clear()
+
+def handle_abort(signal, frame):
+    """Signal handler for abort"""
+    abort_event.set()
+
+# Register signal handler
+signal.signal(signal.SIGINT, handle_abort)
+
+def force_memory_cleanup():
+    """Force memory cleanup with delay"""
+    if check_abort():
+        raise Exception("Process aborted by user")
+    gc.collect()
+    time.sleep(MEMORY_CLEANUP_DELAY)
 
 def cleanup_old_files():
     """Clean up files older than MAX_FILE_AGE seconds"""
     current_time = time.time()
     
-    for folder in [UPLOAD_FOLDER, CONVERTED_FOLDER]:
+    for folder in [UPLOAD_FOLDER, CONVERTED_FOLDER, CHUNK_FOLDER]:
         for filename in os.listdir(folder):
             filepath = os.path.join(folder, filename)
             if os.path.isfile(filepath):
@@ -73,22 +114,23 @@ def process_text_frame_format(text_frame, direction):
         is_placeholder = hasattr(text_frame, 'is_placeholder') and text_frame.is_placeholder
         
         if direction == 'en_to_ar':
-            txBody = text_frame._element.get_or_add_txBody()
-            bodyPr = txBody.get_or_add_bodyPr()
-            bodyPr.set('rtl', '1')
+            # Get or create the text body element
+            if hasattr(text_frame, '_element'):
+                txBody = text_frame._element
+            else:
+                txBody = text_frame
+            
+            # Set RTL for the text body
+            if not hasattr(txBody, 'bodyPr'):
+                txBody.insert(0, parse_xml(r'<p:bodyPr xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"/>'))
+            txBody.bodyPr.set('rtl', '1')
             
             for paragraph in text_frame.paragraphs:
-                for run in paragraph.runs:
-                    run.font.name = "Traditional Arabic"
-                    if not run.font.size:
-                        run.font.size = Pt(18)
-                    
-                    if any(char.isdigit() for char in run.text):
-                        run.text = convert_number_to_arabic(run.text)
-
+                # Set paragraph properties
                 if not is_placeholder:
                     paragraph.alignment = PP_ALIGN.RIGHT
                     
+                    # Handle numbering
                     if hasattr(paragraph._pPr, 'numPr') and paragraph._pPr.numPr is not None:
                         pPr = paragraph._element.get_or_add_pPr()
                         if pPr.numPr is not None:
@@ -96,42 +138,72 @@ def process_text_frame_format(text_frame, direction):
                             lvl = pPr.get_or_add_numPr().get_or_add_ilvl()
                             lvl.val = 0
                     
+                    # Set RTL for paragraph
                     pPr = paragraph._element.get_or_add_pPr()
                     pPr.set('rtl', '1')
                     
+                    # Add RTL element
+                    rtl = parse_xml(r'<a:rtl xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">1</a:rtl>')
+                    paragraph._p.insert(0, rtl)
+                
+                # Process each run in the paragraph
+                for run in paragraph.runs:
+                    # Set font properties
+                    run.font.name = "Traditional Arabic"
+                    if not run.font.size:
+                        run.font.size = Pt(18)
+                    
+                    # Convert numbers to Arabic
+                    if any(char.isdigit() for char in run.text):
+                        run.text = convert_number_to_arabic(run.text)
+                    
+                    # Set language and RTL properties for run
                     rPr = run._r.get_or_add_rPr()
                     rPr.set(qn('w:lang'), 'ar-SA')
                     
-                    rtl = parse_xml(r'<a:rtl xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">1</a:rtl>')
-                    paragraph._p.insert(0, rtl)
-        else:
-            txBody = text_frame._element.get_or_add_txBody()
-            bodyPr = txBody.get_or_add_bodyPr()
-            bodyPr.set('rtl', '0')
+        else:  # ar_to_en
+            # Get or create the text body element
+            if hasattr(text_frame, '_element'):
+                txBody = text_frame._element
+            else:
+                txBody = text_frame
+            
+            # Set LTR for the text body
+            if not hasattr(txBody, 'bodyPr'):
+                txBody.insert(0, parse_xml(r'<p:bodyPr xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"/>'))
+            txBody.bodyPr.set('rtl', '0')
             
             for paragraph in text_frame.paragraphs:
-                for run in paragraph.runs:
-                    run.font.name = "Arial"
-                    if not run.font.size:
-                        run.font.size = Pt(12)
-                    
+                # Set paragraph properties
                 if not is_placeholder:
                     paragraph.alignment = PP_ALIGN.LEFT
                     
-                    if paragraph._pPr.numPr is not None:
+                    # Handle numbering
+                    if hasattr(paragraph._pPr, 'numPr') and paragraph._pPr.numPr is not None:
                         pPr = paragraph._element.get_or_add_pPr()
                         if pPr.numPr is not None:
                             pPr.set('rtl', '0')
                     
+                    # Set LTR for paragraph
                     pPr = paragraph._element.get_or_add_pPr()
                     pPr.set('rtl', '0')
                     
-                    rPr = run._r.get_or_add_rPr()
-                    rPr.set(qn('w:lang'), 'en-US')
-                    
+                    # Remove RTL elements
                     rtl_elements = paragraph._p.findall('.//{http://schemas.openxmlformats.org/drawingml/2006/main}rtl')
                     for rtl_elem in rtl_elements:
                         paragraph._p.remove(rtl_elem)
+                
+                # Process each run in the paragraph
+                for run in paragraph.runs:
+                    # Set font properties
+                    run.font.name = "Arial"
+                    if not run.font.size:
+                        run.font.size = Pt(12)
+                    
+                    # Set language and LTR properties for run
+                    rPr = run._r.get_or_add_rPr()
+                    rPr.set(qn('w:lang'), 'en-US')
+                    
     except Exception as e:
         log_error(e, "Error processing text frame format")
 
@@ -163,7 +235,10 @@ def convert_pptx(input_path, output_path, slide_indices=None, direction='en_to_a
     try:
         print(f"[Conversion] Starting conversion from {input_path} to {output_path}")
         
-        # Load presentation
+        # Reset abort flag at start of conversion
+        reset_abort()
+        
+        # Load presentation with minimal memory usage
         prs = Presentation(input_path)
         slide_width = prs.slide_width
         total_slides = len(prs.slides)
@@ -171,34 +246,134 @@ def convert_pptx(input_path, output_path, slide_indices=None, direction='en_to_a
         if slide_indices:
             slide_indices = [i for i in slide_indices if 1 <= i <= total_slides]
         
-        # Process slides
-        for i, slide in enumerate(prs.slides, start=1):
-            if slide_indices and i not in slide_indices:
+        # Process all slides for formatting
+        for slide_index, slide in enumerate(prs.slides, start=1):
+            # Check for abort signal
+            if check_abort():
+                print("[Conversion] Process aborted by user")
+                raise Exception("Process aborted by user")
+                
+            if slide_indices and slide_index not in slide_indices:
                 continue
+                
+            print(f"[Conversion] Processing slide {slide_index}/{total_slides}")
+            
+            # Process each shape in the slide
             for shape in slide.shapes:
+                if check_abort():
+                    print("[Conversion] Process aborted by user")
+                    raise Exception("Process aborted by user")
                 process_shape_format(shape, slide_width, direction)
-        
-        # Save and cleanup
-        prs.save(output_path)
-        del prs
-        gc.collect()  # Force garbage collection
+            
+            # Force memory cleanup after each slide
+            force_memory_cleanup()
+            
+            # Save progress after each slide
+            try:
+                prs.save(output_path)
+                print(f"[Conversion] Saved progress after slide {slide_index}")
+            except Exception as e:
+                log_error(e, "Error saving progress")
         
         return 'completed'
     except Exception as e:
+        if str(e) == "Process aborted by user":
+            return 'aborted'
         log_error(e, "Error during PowerPoint conversion")
         raise
     finally:
-        # Ensure we clean up the input file
+        # Ensure we clean up the input file and force garbage collection
         try:
             if os.path.exists(input_path):
                 os.remove(input_path)
+            force_memory_cleanup()
         except Exception as e:
             log_error(e, "Error cleaning up input file")
+
+def assemble_chunks(chunk_files, output_path):
+    """Assemble uploaded chunks into a single file"""
+    try:
+        with open(output_path, 'wb') as outfile:
+            for chunk_file in sorted(chunk_files):
+                with open(chunk_file, 'rb') as infile:
+                    outfile.write(infile.read())
+                os.remove(chunk_file)  # Delete chunk after use
+        return True
+    except Exception as e:
+        log_error(e, "Error assembling chunks")
+        return False
+
+@app.before_request
+def check_request_size():
+    """Check request size before processing"""
+    if request.path == '/upload-chunk':
+        return  # Skip size check for chunk uploads
 
 @app.route('/', methods=['GET'])
 def index():
     cleanup_old_files()  # Clean up old files on page load
     return render_template('index.html')
+
+@app.route('/upload-chunk', methods=['POST'])
+def upload_chunk():
+    try:
+        if 'file' not in request.files:
+            return jsonify({'status': 'error', 'message': 'No file part'}), 400
+        
+        file = request.files['file']
+        chunk_number = int(request.form.get('chunk', 0))
+        total_chunks = int(request.form.get('total', 0))
+        filename = request.form.get('filename')
+        
+        if not filename:
+            return jsonify({'status': 'error', 'message': 'No filename provided'}), 400
+
+        # Force memory cleanup before saving chunk
+        force_memory_cleanup()
+
+        # Save the chunk
+        chunk_name = f"{filename}.part{chunk_number}"
+        chunk_path = os.path.join(app.config['CHUNK_FOLDER'], chunk_name)
+        file.save(chunk_path)
+
+        # If this is the last chunk, assemble the file
+        if chunk_number == total_chunks - 1:
+            final_filename = secure_filename(filename)
+            final_path = os.path.join(app.config['UPLOAD_FOLDER'], final_filename)
+            
+            # Get all chunks for this file
+            chunk_files = sorted([
+                os.path.join(app.config['CHUNK_FOLDER'], f)
+                for f in os.listdir(app.config['CHUNK_FOLDER'])
+                if f.startswith(filename + '.part')
+            ])
+            
+            if assemble_chunks(chunk_files, final_path):
+                return jsonify({
+                    'status': 'success',
+                    'message': 'File uploaded successfully',
+                    'filename': final_filename
+                })
+            else:
+                return jsonify({'status': 'error', 'message': 'Error assembling file'}), 500
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Chunk {chunk_number + 1}/{total_chunks} uploaded'
+        })
+
+    except Exception as e:
+        log_error(e, "Error handling chunk upload")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/abort', methods=['POST'])
+def abort_conversion():
+    """Endpoint to abort the conversion process"""
+    try:
+        abort_event.set()
+        return jsonify({'status': 'success', 'message': 'Abort signal sent'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/convert', methods=['POST'])
 def convert():
@@ -206,20 +381,28 @@ def convert():
     output_path = None
     
     try:
+        # Reset abort flag at start of conversion
+        reset_abort()
+        
+        # Check if file was uploaded
         if 'file' not in request.files:
             return jsonify({'status': 'error', 'message': 'No file uploaded'}), 400
-
+            
         file = request.files['file']
-        if not file.filename:
+        if file.filename == '':
             return jsonify({'status': 'error', 'message': 'No file selected'}), 400
 
-        if not file.filename.endswith('.pptx'):
+        filename = secure_filename(file.filename)
+        if not filename.endswith('.pptx'):
             return jsonify({'status': 'error', 'message': 'Invalid file type. Please upload a .pptx file'}), 400
 
-        # Get parameters
         output_name = request.form.get('outputName')
         if not output_name:
             return jsonify({'status': 'error', 'message': 'No output name provided'}), 400
+
+        # Save the uploaded file
+        input_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(input_path)
 
         slide_nums_raw = request.form.get('slideNumbers', '')
         conversion_direction = request.form.get('conversionDirection', 'en_to_ar')
@@ -232,14 +415,11 @@ def convert():
             except ValueError:
                 slide_indices = None
 
-        # Save and process file
-        filename = secure_filename(file.filename)
-        input_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         output_filename = secure_filename(output_name) + '.pptx'
         output_path = os.path.join(app.config['CONVERTED_FOLDER'], output_filename)
-
-        file.save(input_path)
         
+        # Convert with memory optimization
+        gc.collect()  # Force garbage collection before processing
         status = convert_pptx(
             input_path=input_path,
             output_path=output_path,
@@ -247,15 +427,19 @@ def convert():
             direction=conversion_direction
         )
 
-        # Set up automatic cleanup after sending
-        @after_this_request
-        def cleanup(response):
-            try:
-                if os.path.exists(output_path):
-                    os.remove(output_path)
-            except Exception as e:
-                log_error(e, "Error in cleanup after request")
-            return response
+        if status == 'aborted':
+            return jsonify({
+                'status': 'aborted',
+                'message': 'Process was aborted by user'
+            })
+
+        # Clean up input file after successful conversion
+        try:
+            if os.path.exists(input_path):
+                os.remove(input_path)
+            gc.collect()
+        except Exception as e:
+            log_error(e, "Error cleaning up input file")
 
         return jsonify({
             'status': status,
@@ -269,6 +453,7 @@ def convert():
                 os.remove(input_path)
             if output_path and os.path.exists(output_path):
                 os.remove(output_path)
+            gc.collect()  # Force garbage collection after error
         except Exception as cleanup_error:
             log_error(cleanup_error, "Error cleaning up files after error")
             
@@ -283,6 +468,16 @@ def download_file(filename):
         if not os.path.exists(file_path):
             return jsonify({'status': 'error', 'message': 'File not found'}), 404
 
+        # Send the file
+        response = send_from_directory(
+            app.config['CONVERTED_FOLDER'],
+            filename,
+            as_attachment=True,
+            download_name=filename,
+            mimetype='application/vnd.openxmlformats-officedocument.presentationml.presentation'
+        )
+
+        # Clean up after the file is sent
         @after_this_request
         def cleanup(response):
             try:
@@ -292,13 +487,7 @@ def download_file(filename):
                 log_error(e, "Error cleaning up after download")
             return response
 
-        return send_from_directory(
-            app.config['CONVERTED_FOLDER'],
-            filename,
-            as_attachment=True,
-            download_name=filename,
-            mimetype='application/vnd.openxmlformats-officedocument.presentationml.presentation'
-        )
+        return response
 
     except Exception as e:
         log_error(e, "Error during file download")
