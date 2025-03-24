@@ -280,10 +280,14 @@ def convert_pptx(input_path, output_path, slide_indices=None, direction='en_to_a
                 if shape.has_text_frame:
                     for paragraph in shape.text_frame.paragraphs:
                         for run in paragraph.runs:
-                            if run.text.strip():  # Only translate non-empty text
+                            text = run.text.strip()
+                            if text and text is not None:  # Only translate non-empty, non-None text
                                 try:
-                                    translated_text = translator.translate(run.text)
-                                    run.text = translated_text
+                                    translated_text = translator.translate(text)
+                                    if translated_text and translated_text is not None:
+                                        run.text = translated_text
+                                    else:
+                                        print(f"[Translation Warning] Empty translation result for text: {text}")
                                 except Exception as e:
                                     print(f"[Translation Error] Failed to translate text: {e}")
                                     continue
@@ -513,6 +517,22 @@ def convert():
         log_error(e, "Error during request processing")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+def delayed_delete(file_path, delay=10):
+    """Delete a file after a delay to ensure it's no longer in use"""
+    def delete_file():
+        time.sleep(delay)  # Wait for download to complete
+        try:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                print(f"[Cleanup] Successfully deleted file: {file_path}")
+        except Exception as e:
+            print(f"[Cleanup Error] Failed to delete file {file_path}: {e}")
+    
+    # Start deletion in a separate thread
+    thread = threading.Thread(target=delete_file)
+    thread.daemon = True  # Thread will be terminated when main program exits
+    thread.start()
+
 @app.route('/download/<filename>')
 def download_file(filename):
     try:
@@ -530,15 +550,8 @@ def download_file(filename):
             mimetype='application/vnd.openxmlformats-officedocument.presentationml.presentation'
         )
 
-        # Clean up after the file is sent
-        @after_this_request
-        def cleanup(response):
-            try:
-                if os.path.exists(file_path):
-                    os.remove(file_path)
-            except Exception as e:
-                log_error(e, "Error cleaning up after download")
-            return response
+        # Schedule file deletion after download
+        delayed_delete(file_path)
 
         return response
 
