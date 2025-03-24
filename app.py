@@ -171,6 +171,14 @@ def process_text_frame_format(text_frame, direction):
                     if any(char.isdigit() for char in run.text):
                         run.text = convert_number_to_arabic(run.text)
                     
+                    # Add Unicode RTL markers to the text
+                    text = run.text
+                    if text and not text.startswith('\u200F'):  # RTL Mark
+                        text = '\u200F' + text
+                    if text and not text.endswith('\u200F'):  # RTL Mark
+                        text = text + '\u200F'
+                    run.text = text
+                    
                     # Set language and RTL properties for run
                     rPr = run._r.get_or_add_rPr()
                     rPr.set(qn('w:lang'), 'ar-SA')
@@ -213,6 +221,11 @@ def process_text_frame_format(text_frame, direction):
                     run.font.name = "Arial"
                     if not run.font.size:
                         run.font.size = Pt(12)
+                    
+                    # Remove Unicode RTL markers from the text
+                    text = run.text
+                    text = text.replace('\u200F', '')  # Remove RTL Mark
+                    run.text = text
                     
                     # Set language and LTR properties for run
                     rPr = run._r.get_or_add_rPr()
