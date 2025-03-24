@@ -4,3 +4,5 @@ Werkzeug==2.3.7
 gunicorn==20.1.0
 requests==2.31.0
 deep-translator==1.11.4
+gevent==23.9.1
+gevent-websocket==0.10.1

@@ -42,8 +42,16 @@ app.config['JSON_AS_ASCII'] = False  # Support non-ASCII characters
 app.config['PERMANENT_SESSION_LIFETIME'] = 1800  # 30 minutes
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB max file size
 app.config['ALLOWED_EXTENSIONS'] = {'pptx'}  # Update allowed extensions
-app.config['REQUEST_TIMEOUT'] = 300  # 5 minutes timeout
+app.config['REQUEST_TIMEOUT'] = 600  # 10 minutes timeout
 app.config['THREADED'] = True
+
+# Add worker configuration
+worker_class = 'gthread'
+worker_connections = 1000
+worker_timeout = 600  # 10 minutes
+threads = 4
+max_requests = 1000
+max_requests_jitter = 50
 
 # Global abort event
 abort_event = Event()

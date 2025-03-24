@@ -377,13 +377,13 @@
 
     function updateProgress(message, percentage, type) {
       if (type === 'conversion') {
-      const box = document.getElementById('progressBox');
-        box.innerText = `${message} ${Math.round(percentage)}%`;
-        console.log(`[Progress] Conversion: ${message} ${Math.round(percentage)}%`);
+        const box = document.getElementById('progressBox');
+        box.innerText = `${message}`;
+        console.log(`[Progress] Conversion: ${message}`);
       } else if (type === 'translation') {
         const box = document.getElementById('translationProgressBox');
-        box.innerText = `${message} ${Math.round(percentage)}%`;
-        console.log(`[Progress] Translation: ${message} ${Math.round(percentage)}%`);
+        box.innerText = `${message}`;
+        console.log(`[Progress] Translation: ${message}`);
       }
     }
 
@@ -422,7 +422,7 @@
       conversionInterval = setInterval(() => {
         if (conversionPercent < 95) {
           conversionPercent += 1;
-          updateProgress('Format conversion in progress...', conversionPercent, 'conversion');
+          updateProgress(`Format conversion in progress...`, conversionPercent, 'conversion');
         }
       }, 100);
     }
