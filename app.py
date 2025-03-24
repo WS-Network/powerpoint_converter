@@ -41,7 +41,7 @@ app.config['TEMPLATES_AUTO_RELOAD'] = False  # Disable template auto-reload
 app.config['JSON_AS_ASCII'] = False  # Support non-ASCII characters
 app.config['PERMANENT_SESSION_LIFETIME'] = 1800  # 30 minutes
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB max file size
-app.config['UPLOAD_EXTENSIONS'] = ['.pptx']
+app.config['ALLOWED_EXTENSIONS'] = {'pptx'}  # Update allowed extensions
 app.config['REQUEST_TIMEOUT'] = 300  # 5 minutes timeout
 app.config['THREADED'] = True
 
@@ -338,49 +338,64 @@ def index():
     return render_template('index.html')
 
 def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['UPLOAD_EXTENSIONS']
+    """Check if the file extension is allowed"""
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
 @app.route('/upload-chunk', methods=['POST'])
 def upload_chunk():
     try:
         if 'file' not in request.files:
+            print("[Upload] No file part in request")
             return jsonify({'error': 'No file part'}), 400
         
         file = request.files['file']
-        chunk_index = int(request.form.get('chunk', 0))
-        total_chunks = int(request.form.get('total', 1))
-        filename = secure_filename(request.form.get('filename', ''))
+        chunk_index = int(request.form.get('chunk_index', 0))
+        total_chunks = int(request.form.get('total_chunks', 1))
+        original_filename = secure_filename(request.form.get('original_filename', ''))
 
-        if not filename:
-            return jsonify({'error': 'No filename provided'}), 400
+        if not original_filename:
+            print("[Upload] No original filename provided")
+            return jsonify({'error': 'No original filename provided'}), 400
 
-        if not allowed_file(filename):
+        if not allowed_file(original_filename):
+            print("[Upload] Invalid file type:", original_filename)
             return jsonify({'error': 'File type not allowed'}), 400
 
+        print(f"[Upload] Processing chunk {chunk_index + 1}/{total_chunks} for file: {original_filename}")
+
         # Create a temporary directory for chunks if it doesn't exist
-        chunk_dir = os.path.join(app.config['CHUNK_FOLDER'], filename)
+        chunk_dir = os.path.join(app.config['CHUNK_FOLDER'], original_filename)
         os.makedirs(chunk_dir, exist_ok=True)
 
         # Save the chunk
         chunk_path = os.path.join(chunk_dir, f'chunk_{chunk_index}')
         file.save(chunk_path)
+        print(f"[Upload] Saved chunk {chunk_index} to: {chunk_path}")
 
         # If this is the last chunk, combine all chunks
         if chunk_index == total_chunks - 1:
-            final_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            with open(final_path, 'wb') as outfile:
-                for i in range(total_chunks):
-                    chunk_path = os.path.join(chunk_dir, f'chunk_{i}')
-                    with open(chunk_path, 'rb') as infile:
-                        outfile.write(infile.read())
+            print("[Upload] Last chunk received, combining chunks...")
+            final_path = os.path.join(app.config['UPLOAD_FOLDER'], original_filename)
+            
+            try:
+                with open(final_path, 'wb') as outfile:
+                    for i in range(total_chunks):
+                        chunk_path = os.path.join(chunk_dir, f'chunk_{i}')
+                        with open(chunk_path, 'rb') as infile:
+                            outfile.write(infile.read())
+                print(f"[Upload] Successfully combined chunks into: {final_path}")
 
-            # Clean up chunks
-            shutil.rmtree(chunk_dir)
+                # Clean up chunks
+                shutil.rmtree(chunk_dir)
+                print("[Upload] Cleaned up chunk directory")
 
-            return jsonify({
-                'message': 'File upload complete',
-                'filename': filename
-            }), 200
+                return jsonify({
+                    'message': 'File upload complete',
+                    'filename': original_filename
+                }), 200
+            except Exception as e:
+                print(f"[Upload] Error combining chunks: {str(e)}")
+                return jsonify({'error': f'Error combining chunks: {str(e)}'}), 500
 
         return jsonify({
             'message': f'Chunk {chunk_index + 1}/{total_chunks} uploaded successfully'
@@ -409,35 +424,30 @@ def convert():
         # Reset abort flag at start of conversion
         reset_abort()
         
-        # Check if file was uploaded
-        if 'file' not in request.files:
-            print("[Convert] No file in request")
-            return jsonify({'status': 'error', 'message': 'No file uploaded'}), 400
+        # Get the original filename from form data
+        original_filename = request.form.get('original_filename')
+        if not original_filename:
+            print("[Convert] No original filename provided")
+            return jsonify({'status': 'error', 'message': 'No original filename provided'}), 400
             
-        file = request.files['file']
-        if file.filename == '':
-            print("[Convert] Empty filename")
-            return jsonify({'status': 'error', 'message': 'No file selected'}), 400
-
-        filename = secure_filename(file.filename)
-        if not filename.endswith('.pptx'):
-            print("[Convert] Invalid file type:", filename)
-            return jsonify({'status': 'error', 'message': 'Invalid file type. Please upload a .pptx file'}), 400
+        # Use the assembled file from the upload folder
+        input_path = os.path.join(app.config['UPLOAD_FOLDER'], original_filename)
+        if not os.path.exists(input_path):
+            print("[Convert] Input file not found:", input_path)
+            return jsonify({'status': 'error', 'message': 'Input file not found'}), 400
 
         output_name = request.form.get('outputName')
         if not output_name:
             print("[Convert] No output name provided")
             return jsonify({'status': 'error', 'message': 'No output name provided'}), 400
 
-        print("[Convert] Processing file:", filename)
-        # Save the uploaded file
-        input_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(input_path)
-        print("[Convert] File saved to:", input_path)
+        print("[Convert] Processing file:", original_filename)
 
         slide_nums_raw = request.form.get('slideNumbers', '')
         conversion_direction = request.form.get('conversionDirection', 'en_to_ar')
+        enable_translation = request.form.get('translationToggle', 'true').lower() == 'true'
         print("[Convert] Conversion direction:", conversion_direction)
+        print("[Convert] Translation enabled:", enable_translation)
 
         # Process slide numbers
         slide_indices = None

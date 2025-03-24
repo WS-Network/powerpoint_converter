@@ -521,12 +521,17 @@
         return;
       }
 
+      const file = fileInput.files[0];
+      if (!file.name.toLowerCase().endsWith('.pptx')) {
+        showError('Please select a valid PowerPoint (.pptx) file');
+        return;
+      }
+
       if (!outputName) {
         showError('Please enter an output name');
         return;
       }
 
-      const file = fileInput.files[0];
       const chunkSize = 1024 * 1024; // 1MB chunks
       const totalChunks = Math.ceil(file.size / chunkSize);
       let uploadedChunks = 0;
@@ -552,10 +557,12 @@
           const chunk = file.slice(start, end);
 
           const formData = new FormData();
-          formData.append('file', chunk);
-          formData.append('chunk', chunkIndex);
-          formData.append('total', totalChunks);
-          formData.append('filename', file.name);
+          formData.append('file', new Blob([chunk], { type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' }), file.name);
+          formData.append('chunk_index', chunkIndex.toString());
+          formData.append('total_chunks', totalChunks.toString());
+          formData.append('original_filename', file.name);
+
+          console.log(`[System] Uploading chunk ${chunkIndex + 1}/${totalChunks}`);
 
           const response = await fetch('/upload-chunk', {
             method: 'POST',
@@ -564,8 +571,12 @@
           });
 
           if (!response.ok) {
-            throw new Error(`Failed to upload chunk ${chunkIndex + 1}/${totalChunks}`);
+            const errorData = await response.json();
+            throw new Error(errorData.error || `Failed to upload chunk ${chunkIndex + 1}/${totalChunks}`);
           }
+
+          const result = await response.json();
+          console.log(`[System] Chunk ${chunkIndex + 1} upload result:`, result);
 
           uploadedChunks++;
           const uploadProgress = (uploadedChunks / totalChunks) * 100;
@@ -579,6 +590,7 @@
         formData.append('conversionDirection', conversionDirection);
         formData.append('slideNumbers', slideNumbers);
         formData.append('translationToggle', enableTranslation);
+        formData.append('original_filename', file.name);
 
         const response = await fetch('/convert', {
           method: 'POST',
@@ -588,7 +600,8 @@
 
         console.log('[System] Received response:', response.status);
         if (!response.ok) {
-          throw new Error(`Server responded with status: ${response.status}`);
+          const errorData = await response.json();
+          throw new Error(errorData.error || `Server responded with status: ${response.status}`);
         }
 
         const data = await response.json();
