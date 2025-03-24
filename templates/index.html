@@ -535,6 +535,7 @@
       const chunkSize = 1024 * 1024; // 1MB chunks
       const totalChunks = Math.ceil(file.size / chunkSize);
       let uploadedChunks = 0;
+      let sanitizedFilename = ''; // Will store the sanitized filename returned from server
 
       console.log('[System] Starting conversion with:', {
         fileName: file.name,
@@ -577,6 +578,12 @@
 
           const result = await response.json();
           console.log(`[System] Chunk ${chunkIndex + 1} upload result:`, result);
+          
+          // Store the sanitized filename from the server's response
+          if (result.filename && chunkIndex === totalChunks - 1) {
+            sanitizedFilename = result.filename;
+            console.log(`[System] Server sanitized filename: ${sanitizedFilename}`);
+          }
 
           uploadedChunks++;
           const uploadProgress = (uploadedChunks / totalChunks) * 100;
@@ -590,7 +597,10 @@
         formData.append('conversionDirection', conversionDirection);
         formData.append('slideNumbers', slideNumbers);
         formData.append('translationToggle', enableTranslation);
-        formData.append('original_filename', file.name);
+        
+        // Use sanitized filename if available, otherwise use original
+        formData.append('original_filename', sanitizedFilename || file.name);
+        console.log(`[System] Using filename for conversion: ${sanitizedFilename || file.name}`);
 
         const response = await fetch('/convert', {
           method: 'POST',

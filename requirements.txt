@@ -6,3 +6,6 @@ requests==2.31.0
 deep-translator==1.11.4
 gevent==23.9.1
 gevent-websocket==0.10.1
+psutil==5.9.6
+lxml==4.9.3
+pympler==1.0.1

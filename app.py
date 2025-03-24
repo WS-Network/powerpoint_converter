@@ -17,14 +17,17 @@ from threading import Event
 import tempfile
 import shutil
 import threading
+import psutil
+import sys
+from pympler import summary, muppy
 
 UPLOAD_FOLDER = 'uploads'
 CONVERTED_FOLDER = 'converted'
 CHUNK_FOLDER = 'chunks'
 MAX_FILE_AGE = 300  # 5 minutes in seconds
-CHUNK_SIZE = 250 * 1024  # 250KB chunk size for uploads
+CHUNK_SIZE = 512 * 1024  # 512KB chunk size for uploads - increased for better performance
 MAX_SLIDES_PER_BATCH = 2  # Process 2 slides at a time
-MEMORY_CLEANUP_DELAY = 1  # 1 second delay between memory cleanups
+MEMORY_CLEANUP_DELAY = 0.5  # 0.5 second delay between memory cleanups - reduced for better performance
 
 # Create necessary directories
 for folder in [UPLOAD_FOLDER, CONVERTED_FOLDER, CHUNK_FOLDER]:
@@ -71,11 +74,20 @@ def handle_abort(signal, frame):
 # Register signal handler
 signal.signal(signal.SIGINT, handle_abort)
 
+def log_memory_usage(tag=""):
+    """Log current memory usage"""
+    process = psutil.Process(os.getpid())
+    memory_info = process.memory_info()
+    print(f"[Memory {tag}] RSS: {memory_info.rss / (1024 * 1024):.2f} MB, VMS: {memory_info.vms / (1024 * 1024):.2f} MB")
+
 def force_memory_cleanup():
     """Force memory cleanup with delay"""
     if check_abort():
         raise Exception("Process aborted by user")
+    
+    log_memory_usage("Before GC")
     gc.collect()
+    log_memory_usage("After GC")
     time.sleep(MEMORY_CLEANUP_DELAY)
 
 def cleanup_old_files():
@@ -273,55 +285,89 @@ def convert_pptx(input_path, output_path, slide_indices=None, direction='en_to_a
         slide_width = prs.slide_width
         total_slides = len(prs.slides)
         
+        print(f"[Conversion] Total slides: {total_slides}")
+        
         if slide_indices:
             slide_indices = [i for i in slide_indices if 1 <= i <= total_slides]
+            print(f"[Conversion] Processing specific slides: {slide_indices}")
+        else:
+            print(f"[Conversion] Processing all slides")
+        
+        # Translation cache to avoid repeating translations
+        translation_cache = {}
+        
+        # Process slides in smaller batches to reduce memory usage
+        batch_size = 3  # Process 3 slides at a time
         
         # Process all slides for formatting and translation
-        for slide_index, slide in enumerate(prs.slides, start=1):
-            # Check for abort signal
-            if check_abort():
-                print("[Conversion] Process aborted by user")
-                raise Exception("Process aborted by user")
-                
-            if slide_indices and slide_index not in slide_indices:
-                continue
-                
-            print(f"[Conversion] Processing slide {slide_index}/{total_slides}")
+        for batch_start in range(1, total_slides + 1, batch_size):
+            batch_end = min(batch_start + batch_size - 1, total_slides)
+            print(f"[Conversion] Processing slide batch {batch_start}-{batch_end}")
             
-            # Process each shape in the slide
-            for shape in slide.shapes:
+            # Save progress after each batch
+            should_save = False
+            
+            for slide_index in range(batch_start, batch_end + 1):
+                # Check for abort signal
                 if check_abort():
                     print("[Conversion] Process aborted by user")
                     raise Exception("Process aborted by user")
+                    
+                if slide_indices and slide_index not in slide_indices:
+                    continue
+                    
+                print(f"[Conversion] Processing slide {slide_index}/{total_slides}")
+                slide = prs.slides[slide_index - 1]  # 0-based index
                 
-                # Process formatting
-                process_shape_format(shape, slide_width, direction)
+                # Process each shape in the slide
+                for shape in slide.shapes:
+                    if check_abort():
+                        print("[Conversion] Process aborted by user")
+                        raise Exception("Process aborted by user")
+                    
+                    # Process formatting
+                    process_shape_format(shape, slide_width, direction)
+                    
+                    # Process translation if shape has text
+                    if shape.has_text_frame:
+                        for paragraph in shape.text_frame.paragraphs:
+                            for run in paragraph.runs:
+                                text = run.text.strip()
+                                if text and text is not None:  # Only translate non-empty, non-None text
+                                    try:
+                                        # Check cache first
+                                        if text in translation_cache:
+                                            run.text = translation_cache[text]
+                                        else:
+                                            translated_text = translator.translate(text)
+                                            if translated_text and translated_text is not None:
+                                                run.text = translated_text
+                                                # Cache the translation
+                                                translation_cache[text] = translated_text
+                                            else:
+                                                print(f"[Translation Warning] Empty translation result for text: {text}")
+                                    except Exception as e:
+                                        print(f"[Translation Error] Failed to translate text: {e}")
+                                        continue
                 
-                # Process translation if shape has text
-                if shape.has_text_frame:
-                    for paragraph in shape.text_frame.paragraphs:
-                        for run in paragraph.runs:
-                            text = run.text.strip()
-                            if text and text is not None:  # Only translate non-empty, non-None text
-                                try:
-                                    translated_text = translator.translate(text)
-                                    if translated_text and translated_text is not None:
-                                        run.text = translated_text
-                                    else:
-                                        print(f"[Translation Warning] Empty translation result for text: {text}")
-                                except Exception as e:
-                                    print(f"[Translation Error] Failed to translate text: {e}")
-                                    continue
+                # Mark that we should save progress
+                should_save = True
             
-            # Force memory cleanup after each slide
+            # Force memory cleanup after each batch
             force_memory_cleanup()
             
-            # Save progress after each slide
-            try:
-                prs.save(output_path)
-                print(f"[Conversion] Saved progress after slide {slide_index}")
-            except Exception as e:
-                log_error(e, "Error saving progress")
+            # Save progress after each batch
+            if should_save:
+                try:
+                    prs.save(output_path)
+                    print(f"[Conversion] Saved progress after slide batch {batch_start}-{batch_end}")
+                except Exception as e:
+                    log_error(e, "Error saving progress")
+            
+            # Clear some memory between batches
+            del translation_cache
+            translation_cache = {}
+            gc.collect()
         
         return 'completed'
     except Exception as e:
@@ -357,6 +403,31 @@ def check_request_size():
     if request.path == '/upload-chunk':
         return  # Skip size check for chunk uploads
 
+def cleanup_on_startup():
+    """Clean up all temporary files on startup"""
+    print("[Startup] Cleaning up temporary directories...")
+    try:
+        # Clean up upload folder
+        for folder in [UPLOAD_FOLDER, CONVERTED_FOLDER, CHUNK_FOLDER]:
+            if os.path.exists(folder):
+                for filename in os.listdir(folder):
+                    filepath = os.path.join(folder, filename)
+                    try:
+                        if os.path.isfile(filepath):
+                            os.remove(filepath)
+                            print(f"[Startup] Removed file: {filepath}")
+                        elif os.path.isdir(filepath):
+                            shutil.rmtree(filepath)
+                            print(f"[Startup] Removed directory: {filepath}")
+                    except Exception as e:
+                        print(f"[Startup] Error removing {filepath}: {e}")
+        print("[Startup] Cleanup complete")
+    except Exception as e:
+        print(f"[Startup] Error during cleanup: {e}")
+
+# Run cleanup at startup
+cleanup_on_startup()
+
 @app.route('/', methods=['GET'])
 def index():
     cleanup_old_files()  # Clean up old files on page load
@@ -376,20 +447,25 @@ def upload_chunk():
         file = request.files['file']
         chunk_index = int(request.form.get('chunk_index', 0))
         total_chunks = int(request.form.get('total_chunks', 1))
-        original_filename = secure_filename(request.form.get('original_filename', ''))
-
+        
+        # Get original filename from form data
+        original_filename = request.form.get('original_filename', '')
         if not original_filename:
             print("[Upload] No original filename provided")
             return jsonify({'error': 'No original filename provided'}), 400
+            
+        # Sanitize filename consistently
+        sanitized_filename = secure_filename(original_filename)
+        print(f"[Upload] Original filename: {original_filename}, Sanitized: {sanitized_filename}")
 
-        if not allowed_file(original_filename):
-            print("[Upload] Invalid file type:", original_filename)
+        if not allowed_file(sanitized_filename):
+            print("[Upload] Invalid file type:", sanitized_filename)
             return jsonify({'error': 'File type not allowed'}), 400
 
-        print(f"[Upload] Processing chunk {chunk_index + 1}/{total_chunks} for file: {original_filename}")
+        print(f"[Upload] Processing chunk {chunk_index + 1}/{total_chunks} for file: {sanitized_filename}")
 
         # Create a temporary directory for chunks if it doesn't exist
-        chunk_dir = os.path.join(app.config['CHUNK_FOLDER'], original_filename)
+        chunk_dir = os.path.join(app.config['CHUNK_FOLDER'], sanitized_filename)
         os.makedirs(chunk_dir, exist_ok=True)
 
         # Save the chunk
@@ -400,7 +476,7 @@ def upload_chunk():
         # If this is the last chunk, combine all chunks
         if chunk_index == total_chunks - 1:
             print("[Upload] Last chunk received, combining chunks...")
-            final_path = os.path.join(app.config['UPLOAD_FOLDER'], original_filename)
+            final_path = os.path.join(app.config['UPLOAD_FOLDER'], sanitized_filename)
             
             try:
                 with open(final_path, 'wb') as outfile:
@@ -416,7 +492,7 @@ def upload_chunk():
 
                 return jsonify({
                     'message': 'File upload complete',
-                    'filename': original_filename
+                    'filename': sanitized_filename
                 }), 200
             except Exception as e:
                 print(f"[Upload] Error combining chunks: {str(e)}")
@@ -446,6 +522,8 @@ def convert():
     
     try:
         print("[Convert] Starting conversion process")
+        log_memory_usage("Start Conversion")
+        
         # Reset abort flag at start of conversion
         reset_abort()
         
@@ -454,19 +532,34 @@ def convert():
         if not original_filename:
             print("[Convert] No original filename provided")
             return jsonify({'status': 'error', 'message': 'No original filename provided'}), 400
+        
+        # Important: Use secure_filename to ensure the same filename format used during upload
+        sanitized_filename = secure_filename(original_filename)
+        print(f"[Convert] Original filename: {original_filename}, Sanitized: {sanitized_filename}")
             
-        # Use the assembled file from the upload folder
-        input_path = os.path.join(app.config['UPLOAD_FOLDER'], original_filename)
+        # Use the assembled file from the upload folder with sanitized filename
+        input_path = os.path.join(app.config['UPLOAD_FOLDER'], sanitized_filename)
         if not os.path.exists(input_path):
             print("[Convert] Input file not found:", input_path)
-            return jsonify({'status': 'error', 'message': 'Input file not found'}), 400
+            # Try to find the file with different filename variations
+            possible_files = os.listdir(app.config['UPLOAD_FOLDER'])
+            print(f"[Convert] Available files in upload folder: {possible_files}")
+            
+            # Check if there's a similarly named file
+            similar_files = [f for f in possible_files if f.lower().startswith(sanitized_filename.lower().split('.')[0])]
+            if similar_files:
+                print(f"[Convert] Found similar files: {similar_files}")
+                input_path = os.path.join(app.config['UPLOAD_FOLDER'], similar_files[0])
+                print(f"[Convert] Using alternative file: {input_path}")
+            else:
+                return jsonify({'status': 'error', 'message': 'Input file not found'}), 400
 
         output_name = request.form.get('outputName')
         if not output_name:
             print("[Convert] No output name provided")
             return jsonify({'status': 'error', 'message': 'No output name provided'}), 400
 
-        print("[Convert] Processing file:", original_filename)
+        print("[Convert] Processing file:", os.path.basename(input_path))
 
         slide_nums_raw = request.form.get('slideNumbers', '')
         conversion_direction = request.form.get('conversionDirection', 'en_to_ar')
@@ -489,36 +582,54 @@ def convert():
         print("[Convert] Output path:", output_path)
 
         # Convert with memory optimization
+        log_memory_usage("Before Conversion")
         gc.collect()  # Force garbage collection before processing
         print("[Convert] Starting conversion process")
-        status = convert_pptx(
-            input_path=input_path,
-            output_path=output_path,
-            slide_indices=slide_indices,
-            direction=conversion_direction
-        )
-        print("[Convert] Conversion status:", status)
-
-        if status == 'aborted':
-            print("[Convert] Process was aborted")
+        
+        # Run the conversion in a separate thread to prevent worker timeout
+        def run_conversion():
+            nonlocal input_path, output_path, slide_indices, conversion_direction
+            try:
+                status = convert_pptx(
+                    input_path=input_path,
+                    output_path=output_path,
+                    slide_indices=slide_indices,
+                    direction=conversion_direction
+                )
+                print("[Convert] Conversion status:", status)
+                log_memory_usage("After Conversion")
+                
+                # Clean up input file after successful conversion
+                try:
+                    if os.path.exists(input_path):
+                        os.remove(input_path)
+                        print("[Convert] Input file cleaned up")
+                    gc.collect()
+                except Exception as e:
+                    print("[Convert] Error cleaning up input file:", str(e))
+                    log_error(e, "Error cleaning up input file")
+            except Exception as e:
+                print("[Convert] Error in conversion thread:", str(e))
+                log_error(e, "Error in conversion thread")
+        
+        conversion_thread = threading.Thread(target=run_conversion)
+        conversion_thread.daemon = True
+        conversion_thread.start()
+        
+        # Wait for the thread to finish with a timeout
+        conversion_thread.join(timeout=600)  # 10 minute timeout
+        
+        if conversion_thread.is_alive():
+            # Thread is still running, which means it's taking too long
+            abort_event.set()  # Signal thread to abort
             return jsonify({
-                'status': 'aborted',
-                'message': 'Process was aborted by user'
-            })
-
-        # Clean up input file after successful conversion
-        try:
-            if os.path.exists(input_path):
-                os.remove(input_path)
-                print("[Convert] Input file cleaned up")
-            gc.collect()
-        except Exception as e:
-            print("[Convert] Error cleaning up input file:", str(e))
-            log_error(e, "Error cleaning up input file")
+                'status': 'error',
+                'message': 'Conversion is taking too long and has been aborted'
+            }), 500
 
         print("[Convert] Conversion completed successfully")
         return jsonify({
-            'status': status,
+            'status': 'completed',
             'download_url': f'/download/{output_filename}'
         })
 
@@ -531,6 +642,7 @@ def convert():
             if output_path and os.path.exists(output_path):
                 os.remove(output_path)
             gc.collect()  # Force garbage collection after error
+            log_memory_usage("After Error")
         except Exception as cleanup_error:
             print("[Convert] Error during cleanup:", str(cleanup_error))
             log_error(cleanup_error, "Error cleaning up files after error")
