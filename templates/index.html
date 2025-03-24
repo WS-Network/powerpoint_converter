@@ -377,7 +377,7 @@
 
     function updateProgress(message, percentage, type) {
       if (type === 'conversion') {
-        const box = document.getElementById('progressBox');
+      const box = document.getElementById('progressBox');
         box.innerText = `${message}`;
         console.log(`[Progress] Conversion: ${message}`);
       } else if (type === 'translation') {

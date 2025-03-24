@@ -3,25 +3,15 @@ services:
     name: slide-harmony
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app -c gunicorn_config.py
+    startCommand: gunicorn app:app --timeout 300 -c gunicorn_config.py
     envVars:
       - key: PYTHON_VERSION
         value: 3.9.0
       - key: PORT
         value: 10000
-      - key: PYTHONUNBUFFERED
-        value: 1
     healthCheckPath: /
     autoDeploy: true
     disk:
       name: uploads
       mountPath: /opt/render/project/src/uploads
-      sizeGB: 10
-    resources:
-      cpu: 1
-      memory: 512
-      disk: 10
-    scaling:
-      min: 1
-      max: 1
-      targetMemoryPercent: 80 
+      sizeGB: 10 

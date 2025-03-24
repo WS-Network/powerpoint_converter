@@ -22,10 +22,9 @@ UPLOAD_FOLDER = 'uploads'
 CONVERTED_FOLDER = 'converted'
 CHUNK_FOLDER = 'chunks'
 MAX_FILE_AGE = 300  # 5 minutes in seconds
-CHUNK_SIZE = 100 * 1024  # 100KB chunk size for uploads
-MAX_SLIDES_PER_BATCH = 1  # Process 1 slide at a time
-MEMORY_CLEANUP_DELAY = 0.5  # 0.5 second delay between memory cleanups
-MAX_WORKER_MEMORY = 512 * 1024 * 1024  # 512MB max worker memory
+CHUNK_SIZE = 250 * 1024  # 250KB chunk size for uploads
+MAX_SLIDES_PER_BATCH = 2  # Process 2 slides at a time
+MEMORY_CLEANUP_DELAY = 1  # 1 second delay between memory cleanups
 
 # Create necessary directories
 for folder in [UPLOAD_FOLDER, CONVERTED_FOLDER, CHUNK_FOLDER]:
@@ -41,18 +40,18 @@ app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0  # Disable caching
 app.config['TEMPLATES_AUTO_RELOAD'] = False  # Disable template auto-reload
 app.config['JSON_AS_ASCII'] = False  # Support non-ASCII characters
 app.config['PERMANENT_SESSION_LIFETIME'] = 1800  # 30 minutes
-app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
+app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB max file size
 app.config['ALLOWED_EXTENSIONS'] = {'pptx'}  # Update allowed extensions
-app.config['REQUEST_TIMEOUT'] = 300  # 5 minutes timeout
+app.config['REQUEST_TIMEOUT'] = 600  # 10 minutes timeout
 app.config['THREADED'] = True
 
 # Add worker configuration
-worker_class = 'gevent'  # Use gevent for better async handling
-worker_connections = 100
-worker_timeout = 300  # 5 minutes
-threads = 2  # Reduce number of threads
-max_requests = 100
-max_requests_jitter = 10
+worker_class = 'gthread'
+worker_connections = 1000
+worker_timeout = 600  # 10 minutes
+threads = 4
+max_requests = 1000
+max_requests_jitter = 50
 
 # Global abort event
 abort_event = Event()
